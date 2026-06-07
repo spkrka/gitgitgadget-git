@@ -37,17 +37,22 @@ void clear_prio_queue(struct prio_queue *queue)
 	queue->get_pending = 0;
 }
 
-static void sift_down_root(struct prio_queue *queue);
-
-static inline void flush_get(struct prio_queue *queue)
+static void sift_down_root(struct prio_queue *queue)
 {
-	if (!queue->get_pending)
-		return;
-	queue->get_pending = 0;
-	if (!--queue->nr_internal)
-		return;
-	queue->array[0] = queue->array[queue->nr_internal];
-	sift_down_root(queue);
+	size_t ix, child;
+
+	/* Push down the one at the root */
+	for (ix = 0; ix * 2 + 1 < queue->nr_internal; ix = child) {
+		child = ix * 2 + 1; /* left */
+		if (child + 1 < queue->nr_internal &&
+		    compare(queue, child, child + 1) >= 0)
+			child++; /* use right child */
+
+		if (compare(queue, ix, child) <= 0)
+			break;
+
+		swap(queue, child, ix);
+	}
 }
 
 void prio_queue_put(struct prio_queue *queue, void *thing)
@@ -80,32 +85,21 @@ void prio_queue_put(struct prio_queue *queue, void *thing)
 	}
 }
 
-static void sift_down_root(struct prio_queue *queue)
-{
-	size_t ix, child;
-
-	/* Push down the one at the root */
-	for (ix = 0; ix * 2 + 1 < queue->nr_internal; ix = child) {
-		child = ix * 2 + 1; /* left */
-		if (child + 1 < queue->nr_internal &&
-		    compare(queue, child, child + 1) >= 0)
-			child++; /* use right child */
-
-		if (compare(queue, ix, child) <= 0)
-			break;
-
-		swap(queue, child, ix);
-	}
-}
-
 void *prio_queue_get(struct prio_queue *queue)
 {
-	flush_get(queue);
-
 	if (!queue->nr_internal)
 		return NULL;
 	if (!queue->compare)
 		return queue->array[--queue->nr_internal].data; /* LIFO */
+
+	if (queue->get_pending) {
+		if (!--queue->nr_internal) {
+			queue->get_pending = 0;
+			return NULL;
+		}
+		queue->array[0] = queue->array[queue->nr_internal];
+		sift_down_root(queue);
+	}
 
 	queue->get_pending = 1;
 	return queue->array[0].data;
@@ -113,11 +107,18 @@ void *prio_queue_get(struct prio_queue *queue)
 
 void *prio_queue_peek(struct prio_queue *queue)
 {
-	flush_get(queue);
-
 	if (!queue->nr_internal)
 		return NULL;
 	if (!queue->compare)
 		return queue->array[queue->nr_internal - 1].data;
+
+	if (queue->get_pending) {
+		queue->get_pending = 0;
+		if (!--queue->nr_internal)
+			return NULL;
+		queue->array[0] = queue->array[queue->nr_internal];
+		sift_down_root(queue);
+	}
+
 	return queue->array[0].data;
 }
