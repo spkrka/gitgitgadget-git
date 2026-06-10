@@ -286,8 +286,7 @@ test_expect_success 'commit_contains:hit' '
 	X:commit-9-3
 	EOF
 	echo "commit_contains(_,A,X,_):1" >expect &&
-	test_all_modes commit_contains &&
-	test_all_modes commit_contains --tag
+	test_all_modes commit_contains
 '
 
 test_expect_success 'commit_contains:miss' '
@@ -303,8 +302,7 @@ test_expect_success 'commit_contains:miss' '
 	X:commit-9-3
 	EOF
 	echo "commit_contains(_,A,X,_):0" >expect &&
-	test_all_modes commit_contains &&
-	test_all_modes commit_contains --tag
+	test_all_modes commit_contains
 '
 
 test_expect_success 'rev-list: basic topo-order' '

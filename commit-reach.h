@@ -5,7 +5,6 @@
 #include "commit-slab.h"
 
 struct commit_list;
-struct ref_filter;
 struct object_id;
 struct object_array;
 
@@ -78,8 +77,8 @@ enum contains_result {
 
 define_commit_slab(contains_cache, enum contains_result);
 
-int commit_contains(struct ref_filter *filter, struct commit *commit,
-		    struct commit_list *list, struct contains_cache *cache);
+int commit_contains(struct commit *commit, struct commit_list *list,
+		    struct contains_cache *cache);
 
 /*
  * Determine if every commit in 'from' can reach at least one commit
@@ -96,6 +95,11 @@ int can_all_from_reach_with_flag(struct object_array *from,
 int can_all_from_reach(struct commit_list *from, struct commit_list *to,
 		       int commit_date_cutoff);
 
+/*
+ * Compare commits by generation number (ascending), with commit date
+ * as a tiebreaker.  Suitable for QSORT over a struct commit ** array.
+ */
+int compare_commits_by_gen(const void *a, const void *b);
 
 /*
  * Return a list of commits containing the commits in the 'to' array

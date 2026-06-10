@@ -2989,14 +2989,6 @@ static struct ref_array_item *apply_ref_filter(const struct reference *ref,
 		commit = lookup_commit_reference_gently(the_repository, ref->oid, 1);
 		if (!commit)
 			return NULL;
-		/* We perform the filtering for the '--contains' option... */
-		if (filter->with_commit &&
-		    !commit_contains(filter, commit, filter->with_commit, &filter->internal.contains_cache))
-			return NULL;
-		/* ...or for the `--no-contains' option */
-		if (filter->no_commit &&
-		    commit_contains(filter, commit, filter->no_commit, &filter->internal.no_contains_cache))
-			return NULL;
 	}
 
 	/*
@@ -3134,6 +3126,46 @@ void ref_array_clear(struct ref_array *array)
 	}
 
 	FREE_AND_NULL(array->counts);
+}
+
+static int compare_items_by_gen(const void *a, const void *b)
+{
+	const struct commit *ca = (*(const struct ref_array_item **)a)->commit;
+	const struct commit *cb = (*(const struct ref_array_item **)b)->commit;
+	return compare_commits_by_gen(&ca, &cb);
+}
+
+static void filter_by_contains(struct ref_array *array,
+				struct commit_list *targets,
+				int keep_reachable)
+{
+	struct contains_cache cache;
+	size_t i, old_nr;
+
+	if (!targets || !array->nr)
+		return;
+
+	init_contains_cache(&cache);
+
+	/*
+	 * Sort by generation number (lowest first) so that refs
+	 * closest to the targets build the memoization cache first,
+	 * letting refs further away short-circuit.
+	 */
+	QSORT(array->items, array->nr, compare_items_by_gen);
+
+	old_nr = array->nr;
+	array->nr = 0;
+	for (i = 0; i < old_nr; i++) {
+		struct ref_array_item *item = array->items[i];
+		if (commit_contains(item->commit, targets, &cache) ==
+		    keep_reachable)
+			array->items[array->nr++] = item;
+		else
+			free_array_item(item);
+	}
+
+	clear_contains_cache(&cache);
 }
 
 #define EXCLUDE_REACHED 0
@@ -3294,9 +3326,6 @@ static int do_filter_refs(struct ref_filter *filter, unsigned int type, refs_for
 
 	filter->kind = type & FILTER_REFS_KIND_MASK;
 
-	init_contains_cache(&filter->internal.contains_cache);
-	init_contains_cache(&filter->internal.no_contains_cache);
-
 	/*  Simple per-ref filtering */
 	if (!filter->kind)
 		die("filter_refs: invalid type");
@@ -3342,9 +3371,6 @@ static int do_filter_refs(struct ref_filter *filter, unsigned int type, refs_for
 			      cb_data);
 
 
-	clear_contains_cache(&filter->internal.contains_cache);
-	clear_contains_cache(&filter->internal.no_contains_cache);
-
 	return ret;
 }
 
@@ -3369,6 +3395,8 @@ int filter_refs(struct ref_array *array, struct ref_filter *filter, unsigned int
 	ret = do_filter_refs(filter, type, filter_one, &ref_cbdata);
 
 	/*  Filters that need revision walking */
+	filter_by_contains(array, filter->with_commit, 1);
+	filter_by_contains(array, filter->no_commit, 0);
 	reach_filter(array, &filter->reachable_from, INCLUDE_REACHED);
 	reach_filter(array, &filter->unreachable_from, EXCLUDE_REACHED);
 
@@ -3413,7 +3441,8 @@ static inline int can_do_iterative_format(struct ref_filter *filter,
 		if (used_atom[i].atom_type == ATOM_ISBASE)
 			return 0;
 	}
-	return !(filter->reachable_from || filter->unreachable_from);
+	return !(filter->reachable_from || filter->unreachable_from ||
+		 filter->with_commit || filter->no_commit);
 }
 
 void filter_and_format_refs(struct ref_filter *filter, unsigned int type,

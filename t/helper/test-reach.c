@@ -6,7 +6,6 @@
 #include "gettext.h"
 #include "hex.h"
 #include "object-name.h"
-#include "ref-filter.h"
 #include "setup.h"
 #include "string-list.h"
 #include "tag.h"
@@ -138,16 +137,10 @@ int cmd__reach(int ac, const char **av)
 
 		printf("%s(X,_,_,0,0):%d\n", av[1], can_all_from_reach_with_flag(&X_obj, 2, 4, 0, 0));
 	} else if (!strcmp(av[1], "commit_contains")) {
-		struct ref_filter filter = REF_FILTER_INIT;
 		struct contains_cache cache;
 		init_contains_cache(&cache);
 
-		if (ac > 2 && !strcmp(av[2], "--tag"))
-			filter.with_commit_tag_algo = 1;
-		else
-			filter.with_commit_tag_algo = 0;
-
-		printf("%s(_,A,X,_):%d\n", av[1], commit_contains(&filter, A, X, &cache));
+		printf("%s(_,A,X,_):%d\n", av[1], commit_contains(A, X, &cache));
 		clear_contains_cache(&cache);
 	} else if (!strcmp(av[1], "get_reachable_subset")) {
 		const int reachable_flag = 1;

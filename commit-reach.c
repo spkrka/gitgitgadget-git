@@ -21,7 +21,7 @@
 
 static const unsigned all_flags = (PARENT1 | PARENT2 | STALE | RESULT | ENQUEUED);
 
-static int compare_commits_by_gen(const void *_a, const void *_b)
+int compare_commits_by_gen(const void *_a, const void *_b)
 {
 	const struct commit *a = *(const struct commit * const *)_a;
 	const struct commit *b = *(const struct commit * const *)_b;
@@ -845,12 +845,10 @@ static enum contains_result contains_tag_algo(struct commit *candidate,
 	return contains_test(candidate, want, cache, cutoff);
 }
 
-int commit_contains(struct ref_filter *filter, struct commit *commit,
-		    struct commit_list *list, struct contains_cache *cache)
+int commit_contains(struct commit *commit, struct commit_list *list,
+		    struct contains_cache *cache)
 {
-	if (filter->with_commit_tag_algo)
-		return contains_tag_algo(commit, list, cache) == CONTAINS_YES;
-	return repo_is_descendant_of(the_repository, commit, list);
+	return contains_tag_algo(commit, list, cache) == CONTAINS_YES;
 }
 
 int can_all_from_reach_with_flag(struct object_array *from,
