@@ -353,23 +353,6 @@ struct git_graph {
 	unsigned commit_in_columns:1;
 };
 
-struct graph_lookahead_flags {
-	/*
-	 * Set when there will be a commit after the current one that will be
-	 * rendered.
-	 */
-	unsigned int is_next_visible:1;
-	/*
-	 * Set when the next visible commit is candidate to be a visual root.
-	 */
-	unsigned int is_next_visual_root:1;
-	/*
-	 * Set when the next visible commit will be rendered under the current
-	 * commit.
-	 */
-	unsigned int next_has_column:1;
-};
-
 static inline int graph_needs_truncation(struct git_graph *graph, int lane)
 {
 	int max = graph->revs->graph_max_lanes;
@@ -866,97 +849,24 @@ static int graph_is_visual_root_candidate(struct commit *c)
 	return c->parents == NULL && !(c->object.flags & BOUNDARY);
 }
 
-static int graph_is_visual_root(struct git_graph *graph,
-				struct graph_lookahead_flags *flags)
+static int graph_is_visual_root(struct git_graph *graph)
 {
-	/*
-	 * This must be only called for the current commit as graph contains
-	 * the state for the current commit only.
-	 *
-	 * To check if a commit is a visual root, call graph_is_visual_root_candidate()
-	 * but we won't know if it is really a visual root until we get to the
-	 * next commit state.
-	 *
-	 * The current commit is an actual visual root if it is a candidate and
-	 * the commit is not a non-first parent of a merge.
-	 *
-	 *   *
-	 *   |\
-	 *   | *    <- it is a visual root candidate but it shouldn't be indented
-	 *   *         because it is already connected by an edge.
-	 *   ^         if commit_in_columns && is_merge_parent means the commit
-	 *   |         was put by a merge and is connected.
-	 *   |
-	 *   `-------- if !is_next_visible means we're on the last commit, avoid
-	 *             indentation unless the one before is a visual root, then
-	 *             we need to differentiate from the one above.
-	 *
-	 * If next_has_columns means that the next commit has
-	 * already a column, so it will not be rendered below, the
-	 * current commit has to act as the last commit and omit
-	 * indentation.
-	 */
-	return graph_is_visual_root_candidate(graph->commit) &&
-	       !(graph->commit_in_columns &&
-		 graph->columns[graph->commit_index].is_merge_parent) &&
-	       flags->is_next_visible &&
-	       (!flags->next_has_column || graph->visual_root_depth > 0);
-}
+	struct commit *next;
 
-/*
- * Iterates the commits queue searching for the next visible commit, once found
- * sets visibleness and visual-root flags.
- * Knowing if the next commit is also a visual root avoids redundant indentations
- *
- * NEEDSWORK: The queue is actively being modified by the walker, for each commit
- * its parents and itself get simplified and their flags set, but for the next
- * unrelated commit or the grandparents they are not simplified yet, which means
- * that a commit whose parents are all filtered will not be marked as a visual
- * root candidate at the lookahead.
- * This causes the lookahead to fail, failing to set the cascade flag to avoid
- * redundant indentations.
- * See 'test_expect_failure' at t4218-log-graph-indentation.sh.
- */
-static void graph_peek_next_visible(struct git_graph *graph,
-				    struct graph_lookahead_flags *flags)
-{
-	struct commit_list *cl;
+	if (!graph_is_visual_root_candidate(graph->commit))
+		return 0;
+	if (graph->commit_in_columns &&
+	    graph->columns[graph->commit_index].is_merge_parent)
+		return 0;
+	if (!revision_has_more_commits(graph->revs))
+		return 0;
 
-	flags->is_next_visible = 0;
-	flags->is_next_visual_root = 0;
-	flags->next_has_column = 0;
+	next = revision_peek_next_commit(graph->revs);
+	if (next && graph_find_new_column_by_commit(graph, next) >= 0 &&
+	    !graph->visual_root_depth)
+		return 0;
 
-	for (cl = graph->revs->commits; cl; cl = cl->next) {
-		if (get_commit_action(graph->revs, cl->item) != commit_show)
-			continue;
-		flags->is_next_visible = 1;
-		flags->next_has_column = graph_find_new_column_by_commit(graph, cl->item) >= 0;
-		/*
-		 * We do not need graph->commit_in_columns or is_merge_parent,
-		 * because we only need to know whether the next one might be a
-		 * visual root, affecting the current commit where the cascade
-		 * would have to be set and the first visual root not indented.
-		 *
-		 * It will set next_is_visual_root to true for merge parents that
-		 * graph_is_visual_root() would return false, but if the next is
-		 * a merge parent, the current commit is the child and cannot
-		 * be a visual root and therefore having no effect.
-		 */
-		if (!graph_is_visual_root_candidate(cl->item))
-			return;
-
-		/*
-		 * The next visible commit is a visual root candidate, but
-		 * only set cascade if it's not the last commit to be rendered.
-		 */
-		for (cl = cl->next; cl; cl = cl->next) {
-			if (get_commit_action(graph->revs, cl->item) != commit_show)
-				continue;
-			flags->is_next_visual_root = 1;
-			return;
-		}
-		return;
-	}
+	return 1;
 }
 
 static int graph_needs_pre_root_line(struct git_graph *graph)
@@ -968,7 +878,6 @@ static int graph_needs_pre_root_line(struct git_graph *graph)
 void graph_update(struct git_graph *graph, struct commit *commit)
 {
 	struct commit_list *parent;
-	struct graph_lookahead_flags flags;
 
 	/*
 	 * Set the new commit
@@ -999,17 +908,16 @@ void graph_update(struct git_graph *graph, struct commit *commit)
 	 */
 	graph_update_columns(graph);
 
-	graph_peek_next_visible(graph, &flags);
-
-	graph->is_visual_root = graph_is_visual_root(graph, &flags);
+	graph->is_visual_root = graph_is_visual_root(graph);
 
 	if (graph->is_visual_root) {
-		/*
-		 * If next is a visual root we can omit the indent for the first
-		 * visual root and start cascading.
-		 */
-		if (!graph->visual_root_depth && flags.is_next_visual_root)
-			graph->visual_root_cascade = 1;
+		if (!graph->visual_root_depth) {
+			struct commit *next;
+			next = revision_peek_next_commit(graph->revs);
+			if (next && graph_is_visual_root_candidate(next) &&
+			    revision_has_two_or_more_commits(graph->revs))
+				graph->visual_root_cascade = 1;
+		}
 		graph->visual_root_depth++;
 	} else {
 		graph->visual_root_depth = 0;

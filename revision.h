@@ -549,6 +549,27 @@ enum commit_action get_commit_action(struct rev_info *revs,
 enum commit_action simplify_commit(struct rev_info *revs,
 				   struct commit *commit);
 
+/*
+ * Check whether the revision walk has more commits to emit after the
+ * current one.  Uses the appropriate data structure for the active walk
+ * mode (topo_queue for topo walks, revs->commits otherwise).
+ */
+int revision_has_more_commits(struct rev_info *revs);
+
+/*
+ * Peek at the next commit that will be emitted by the revision walk,
+ * without consuming it.  Returns NULL if no more commits remain.
+ * Uses topo_queue for topo walks, revs->commits otherwise.
+ */
+struct commit *revision_peek_next_commit(struct rev_info *revs);
+
+/*
+ * Check whether at least two more commits remain in the walk after
+ * the current one.  Useful for lookahead that needs to know whether
+ * the next commit is the last.
+ */
+int revision_has_two_or_more_commits(struct rev_info *revs);
+
 enum rewrite_result {
 	rewrite_one_ok,
 	rewrite_one_noparents,

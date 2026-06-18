@@ -3964,6 +3964,46 @@ static void expand_topo_walk(struct rev_info *revs, struct commit *commit)
 	}
 }
 
+static struct commit_list *next_visible_commit(struct rev_info *revs,
+					       struct commit_list *cl)
+{
+	while (cl) {
+		if (get_commit_action(revs, cl->item) == commit_show)
+			return cl;
+		cl = cl->next;
+	}
+	return NULL;
+}
+
+int revision_has_more_commits(struct rev_info *revs)
+{
+	if (revs->topo_walk_info)
+		return revs->topo_walk_info->topo_queue.nr > 0;
+	return next_visible_commit(revs, revs->commits) != NULL;
+}
+
+struct commit *revision_peek_next_commit(struct rev_info *revs)
+{
+	struct commit_list *cl;
+
+	if (revs->topo_walk_info)
+		return prio_queue_peek(&revs->topo_walk_info->topo_queue);
+	cl = next_visible_commit(revs, revs->commits);
+	return cl ? cl->item : NULL;
+}
+
+int revision_has_two_or_more_commits(struct rev_info *revs)
+{
+	struct commit_list *cl;
+
+	if (revs->topo_walk_info)
+		return revs->topo_walk_info->topo_queue.nr >= 2;
+	cl = next_visible_commit(revs, revs->commits);
+	if (!cl)
+		return 0;
+	return next_visible_commit(revs, cl->next) != NULL;
+}
+
 void rev_info_commit_list_to_queue(struct rev_info *revs)
 {
 	while (revs->commits)
