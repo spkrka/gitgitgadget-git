@@ -328,6 +328,14 @@ struct git_graph {
 	struct strbuf prefix_buf;
 
 	/*
+	 * Lookahead buffer: up to 2 pre-fetched commits that will be shown.
+	 * Populated by get_revision() so graph_peek_next_visible() can use
+	 * actual walk results instead of peeking at rev_info internals.
+	 */
+	struct commit *lookahead[2];
+	int lookahead_nr;
+
+	/*
 	 * If a commit is a visual root, we need to indent it to prevent
 	 * unrelated commits from being vertically adjacent to it.
 	 */
@@ -443,6 +451,9 @@ struct git_graph *graph_init(struct rev_info *opt)
 	graph->mapping_size = 0;
 	graph->visual_root_depth = 0;
 	graph->visual_root_cascade = 0;
+	graph->lookahead[0] = NULL;
+	graph->lookahead[1] = NULL;
+	graph->lookahead_nr = 0;
 	/*
 	 * Start the column color at the maximum value, since we'll
 	 * always increment it for the first commit we output.
@@ -511,6 +522,18 @@ static void graph_ensure_capacity(struct git_graph *graph, int num_columns)
  */
 static int graph_is_interesting(struct git_graph *graph, struct commit *commit)
 {
+	int i;
+
+	/*
+	 * Commits in the lookahead buffer have been pre-fetched by
+	 * get_revision() and will be shown in the future. They already
+	 * have the SHOWN flag set by get_revision_internal(), but the
+	 * graph still needs to treat them as interesting parents.
+	 */
+	for (i = 0; i < graph->lookahead_nr; i++)
+		if (graph->lookahead[i] == commit)
+			return 1;
+
 	/*
 	 * If revs->boundary is set, commits whose children have
 	 * been shown are always interesting, even if they have the
@@ -920,43 +943,46 @@ static int graph_is_visual_root(struct git_graph *graph,
 static void graph_peek_next_visible(struct git_graph *graph,
 				    struct graph_lookahead_flags *flags)
 {
-	struct commit_list *cl;
-
 	flags->is_next_visible = 0;
 	flags->is_next_visual_root = 0;
 	flags->next_has_column = 0;
 
-	for (cl = graph->revs->commits; cl; cl = cl->next) {
-		if (get_commit_action(graph->revs, cl->item) != commit_show)
-			continue;
-		flags->is_next_visible = 1;
-		flags->next_has_column = graph_find_new_column_by_commit(graph, cl->item) >= 0;
-		/*
-		 * We do not need graph->commit_in_columns or is_merge_parent,
-		 * because we only need to know whether the next one might be a
-		 * visual root, affecting the current commit where the cascade
-		 * would have to be set and the first visual root not indented.
-		 *
-		 * It will set next_is_visual_root to true for merge parents that
-		 * graph_is_visual_root() would return false, but if the next is
-		 * a merge parent, the current commit is the child and cannot
-		 * be a visual root and therefore having no effect.
-		 */
-		if (!graph_is_visual_root_candidate(cl->item))
-			return;
-
-		/*
-		 * The next visible commit is a visual root candidate, but
-		 * only set cascade if it's not the last commit to be rendered.
-		 */
-		for (cl = cl->next; cl; cl = cl->next) {
-			if (get_commit_action(graph->revs, cl->item) != commit_show)
-				continue;
-			flags->is_next_visual_root = 1;
-			return;
-		}
+	if (!graph->lookahead_nr)
 		return;
-	}
+
+	flags->is_next_visible = 1;
+	flags->next_has_column =
+		graph_find_new_column_by_commit(graph, graph->lookahead[0]) >= 0;
+
+	if (!graph_is_visual_root_candidate(graph->lookahead[0]))
+		return;
+
+	if (graph->lookahead_nr >= 2)
+		flags->is_next_visual_root = 1;
+}
+
+struct commit *graph_pop_lookahead(struct git_graph *graph)
+{
+	struct commit *c;
+
+	if (!graph->lookahead_nr)
+		return NULL;
+
+	c = graph->lookahead[0];
+	graph->lookahead[0] = graph->lookahead[1];
+	graph->lookahead[1] = NULL;
+	graph->lookahead_nr--;
+	return c;
+}
+
+int graph_lookahead_room(struct git_graph *graph)
+{
+	return 2 - graph->lookahead_nr;
+}
+
+void graph_push_lookahead(struct git_graph *graph, struct commit *c)
+{
+	graph->lookahead[graph->lookahead_nr++] = c;
 }
 
 static int graph_needs_pre_root_line(struct git_graph *graph)

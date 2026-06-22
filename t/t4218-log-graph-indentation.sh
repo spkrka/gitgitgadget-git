@@ -252,28 +252,29 @@ test_expect_success 'commit with filtered parent becomes a visual root' '
 # being a unrelated child of a parent the will be filtered.
 #
 # instead of the expected:
-test_expect_failure 'filtered parent cascading edge case' '
+test_expect_success 'filtered parent cascading edge case' '
+	create_orphan _27 &&
+	echo test >foo.txt &&
+	git add foo.txt &&
+	test_tick &&
+	git commit -m "D (last)" &&
+
 	create_orphan _25 &&
-	git rm -rf . &&
 	echo test >other.txt &&
 	git add other.txt &&
+	test_tick &&
 	git commit -m "C-filtered" &&
 
 	echo test >foo.txt &&
 	git add foo.txt &&
+	test_tick &&
 	git commit -m "B (child of filtered)" &&
 
 	create_orphan _26 &&
-	git rm -rf . &&
 	echo test >foo.txt &&
 	git add foo.txt &&
+	test_tick &&
 	git commit -m "A (visual root)" &&
-
-	create_orphan _27 &&
-	git rm -rf . &&
-	echo test >foo.txt &&
-	git add foo.txt &&
-	git commit -m "D (last)" &&
 
 	lib_test_check_graph _25 _26 _27 -- foo.txt <<-\EOF
 	* A (visual root)
@@ -282,20 +283,22 @@ test_expect_failure 'filtered parent cascading edge case' '
 	EOF
 '
 
-test_expect_failure 'multiple filtered parents in sequence' '
+test_expect_success 'multiple filtered parents in sequence' '
 	create_orphan _44 &&
-	git rm -rf . &&
-	echo a >other.txt && git add other.txt && git commit -m "44_F" &&
-	echo b >foo.txt && git add foo.txt && git commit -m "44_C" &&
+	echo a >other.txt && git add other.txt &&
+	test_tick && git commit -m "44_F" &&
+	echo b >foo.txt && git add foo.txt &&
+	test_tick && git commit -m "44_C" &&
 
 	create_orphan _45 &&
-	git rm -rf . &&
-	echo c >other.txt && git add other.txt && git commit -m "45_F" &&
-	echo d >foo.txt && git add foo.txt && git commit -m "45_C" &&
+	echo c >other.txt && git add other.txt &&
+	test_tick && git commit -m "45_F" &&
+	echo d >foo.txt && git add foo.txt &&
+	test_tick && git commit -m "45_C" &&
 
 	create_orphan _46 &&
-	git rm -rf . &&
-	echo e >foo.txt && git add foo.txt && git commit -m "46_A" &&
+	echo e >foo.txt && git add foo.txt &&
+	test_tick && git commit -m "46_A" &&
 
 	lib_test_check_graph _44 _45 _46 -- foo.txt <<-\EOF
 	* 46_A
@@ -304,19 +307,20 @@ test_expect_failure 'multiple filtered parents in sequence' '
 	EOF
 '
 
-test_expect_failure 'real orphan root followed by child of filtered parent' '
-	create_orphan _47 &&
-	git rm -rf . &&
-	echo a >foo.txt && git add foo.txt && git commit -m "47_A" &&
+test_expect_success 'real orphan root followed by child of filtered parent' '
+	create_orphan _49 &&
+	echo d >foo.txt && git add foo.txt &&
+	test_tick && git commit -m "49_last" &&
 
 	create_orphan _48 &&
-	git rm -rf . &&
-	echo b >other.txt && git add other.txt && git commit -m "48_filtered" &&
-	echo c >foo.txt && git add foo.txt && git commit -m "48_B" &&
+	echo b >other.txt && git add other.txt &&
+	test_tick && git commit -m "48_filtered" &&
+	echo c >foo.txt && git add foo.txt &&
+	test_tick && git commit -m "48_B" &&
 
-	create_orphan _49 &&
-	git rm -rf . &&
-	echo d >foo.txt && git add foo.txt && git commit -m "49_last" &&
+	create_orphan _47 &&
+	echo a >foo.txt && git add foo.txt &&
+	test_tick && git commit -m "47_A" &&
 
 	lib_test_check_graph _47 _48 _49 -- foo.txt <<-\EOF
 	* 47_A
