@@ -180,6 +180,7 @@ static int paint_down_to_common(struct repository *r,
 				return error(_("could not parse commit %s"),
 					     oid_to_hex(&p->object.oid));
 			}
+			generation_ordering_ok_or_die(commit, p);
 			p->object.flags |= flags;
 			nonstale_queue_put_dedup(&queue, p);
 		}
@@ -422,6 +423,7 @@ static int remove_redundant_with_gen(struct repository *r,
 			parents = c->parents;
 			while (parents) {
 				if (!(parents->item->object.flags & STALE)) {
+					generation_ordering_ok_or_die(c, parents->item);
 					parents->item->object.flags |= STALE;
 					commit_list_insert(parents->item, &stack);
 					break;
@@ -828,17 +830,20 @@ static enum contains_result contains_tag_algo(struct commit *candidate,
 		 * If we just popped the stack, parents->item has been marked,
 		 * therefore contains_test will return a meaningful yes/no.
 		 */
-		else switch (contains_test(parents->item, want, cache, cutoff)) {
-		case CONTAINS_YES:
-			*contains_cache_at(cache, commit) = CONTAINS_YES;
-			contains_stack.nr--;
-			break;
-		case CONTAINS_NO:
-			entry->parents = parents->next;
-			break;
-		case CONTAINS_UNKNOWN:
-			push_to_contains_stack(parents->item, &contains_stack);
-			break;
+		else {
+			generation_ordering_ok_or_die(commit, parents->item);
+			switch (contains_test(parents->item, want, cache, cutoff)) {
+			case CONTAINS_YES:
+				*contains_cache_at(cache, commit) = CONTAINS_YES;
+				contains_stack.nr--;
+				break;
+			case CONTAINS_NO:
+				entry->parents = parents->next;
+				break;
+			case CONTAINS_UNKNOWN:
+				push_to_contains_stack(parents->item, &contains_stack);
+				break;
+			}
 		}
 	}
 	free(contains_stack.contains_stack);
@@ -921,8 +926,12 @@ int can_all_from_reach_with_flag(struct object_array *from,
 				if (!(parent->item->object.flags & assign_flag)) {
 					parent->item->object.flags |= assign_flag;
 
-					if (repo_parse_commit(the_repository, parent->item) ||
-					    parent->item->date < min_commit_date ||
+					if (repo_parse_commit(the_repository, parent->item))
+						continue;
+
+					generation_ordering_ok_or_die(stack->item, parent->item);
+
+					if (parent->item->date < min_commit_date ||
 					    commit_graph_generation(parent->item) < min_generation)
 						continue;
 
@@ -1066,6 +1075,7 @@ struct commit_list *get_reachable_subset(struct commit **from, size_t nr_from,
 			struct commit *p = parents->item;
 
 			repo_parse_commit(the_repository, p);
+			generation_ordering_ok_or_die(current, p);
 
 			if (commit_graph_generation(p) < min_generation)
 				continue;
@@ -1277,6 +1287,7 @@ void tips_reachable_from_bases(struct repository *r,
 
 		for (p = c->parents; p; p = p->next) {
 			repo_parse_commit(r, p->item);
+			generation_ordering_ok_or_die(c, p->item);
 
 			/* Have we already explored this parent? */
 			if (p->item->object.flags & SEEN)

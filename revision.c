@@ -3795,6 +3795,8 @@ static void indegree_walk_step(struct rev_info *revs)
 		if (repo_parse_commit_gently(revs->repo, parent, 1) < 0)
 			return;
 
+		generation_ordering_ok_or_die(c, parent);
+
 		if (*pi)
 			(*pi)++;
 		else
@@ -3946,6 +3948,8 @@ static void expand_topo_walk(struct rev_info *revs, struct commit *commit)
 
 		if (repo_parse_commit_gently(revs->repo, parent, 1) < 0)
 			continue;
+
+		generation_ordering_ok_or_die(commit, parent);
 
 		generation = commit_graph_generation(parent);
 		if (generation < info->min_generation) {

@@ -212,4 +212,13 @@ uint32_t commit_graph_position(const struct commit *);
 void ensure_generations_valid(struct repository *r,
 			      struct commit **commits, size_t nr);
 
+/*
+ * Check that generation numbers are monotonic across a parent-child
+ * edge. Returns 1 if valid, 0 if corrupt. Once corruption is
+ * detected, always returns 0 without rechecking.
+ */
+int generation_ordering_ok(struct commit *child, struct commit *parent);
+void generation_ordering_ok_or_die(struct commit *child,
+				   struct commit *parent);
+
 #endif

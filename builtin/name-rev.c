@@ -217,6 +217,7 @@ static void name_rev(struct commit *start_commit,
 			int generation, distance;
 
 			repo_parse_commit(the_repository, parent);
+			generation_ordering_ok_or_die(commit, parent);
 			if (commit_is_before_cutoff(parent))
 				continue;
 

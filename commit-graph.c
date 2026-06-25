@@ -134,6 +134,57 @@ timestamp_t commit_graph_generation(const struct commit *c)
 	return GENERATION_NUMBER_INFINITY;
 }
 
+/*
+ * Detect corrupt commit-graph generation numbers by checking that
+ * generation numbers increase from parent to child. A commit-graph
+ * written by Git 2.41 through 2.54 can have truncated generation
+ * numbers when the repository contains commits with committer dates
+ * at or beyond 2^32 seconds (2106-02-07 UTC), fixed in fbcc5408fcd.
+ *
+ * Returns 1 if the ordering is valid, 0 if corrupt. Once corruption
+ * is detected, always returns 0 without rechecking.
+ */
+static int generation_ordering_corrupt;
+
+int generation_ordering_ok(struct commit *child,
+			   struct commit *parent)
+{
+	timestamp_t child_gen, parent_gen;
+
+	if (generation_ordering_corrupt)
+		return 0;
+
+	child_gen = commit_graph_generation(child);
+	if (child_gen == GENERATION_NUMBER_INFINITY)
+		return 1;
+
+	parent_gen = commit_graph_generation(parent);
+	if (parent_gen == GENERATION_NUMBER_INFINITY)
+		return 1;
+	if (parent_gen < child_gen)
+		return 1;
+
+	generation_ordering_corrupt = 1;
+	return 0;
+}
+
+void generation_ordering_ok_or_die(struct commit *child,
+				   struct commit *parent)
+{
+	if (generation_ordering_ok(child, parent))
+		return;
+
+	die(_("commit-graph has non-monotonic generations: "
+	      "parent %s generation %"PRItime
+	      " >= child %s generation %"PRItime";\n"
+	      "the commit-graph is corrupt, run "
+	      "\"git commit-graph write --reachable\" to regenerate"),
+	    oid_to_hex(&parent->object.oid),
+	    commit_graph_generation(parent),
+	    oid_to_hex(&child->object.oid),
+	    commit_graph_generation(child));
+}
+
 static timestamp_t commit_graph_generation_from_graph(const struct commit *c)
 {
 	struct commit_graph_data *data =

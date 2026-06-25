@@ -291,6 +291,7 @@ static void process_parent(struct last_modified *lm,
 	struct bitmap *active_p;
 
 	repo_parse_commit(lm->rev.repo, parent);
+	generation_ordering_ok_or_die(c, parent);
 	active_p = active_paths_for(lm, parent);
 
 	/*
