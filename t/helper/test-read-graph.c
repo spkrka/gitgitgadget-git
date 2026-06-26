@@ -34,6 +34,8 @@ static void dump_graph_info(struct commit_graph *graph)
 		printf(" bloom_indexes");
 	if (graph->chunk_bloom_data)
 		printf(" bloom_data");
+	if (graph->graph_fix_level)
+		printf(" gfix");
 	printf("\n");
 
 	printf("options:");

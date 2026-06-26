@@ -44,11 +44,11 @@ test_expect_success 'setup test - repo, commits, commit graph, log outputs' '
 '
 
 graph_read_expect () {
-	NUM_CHUNKS=6
+	NUM_CHUNKS=7
 	cat >expect <<- EOF
 	header: 43475048 1 $(test_oid oid_version) $NUM_CHUNKS 0
 	num_commits: $1
-	chunks: oid_fanout oid_lookup commit_metadata generation_data bloom_indexes bloom_data
+	chunks: oid_fanout oid_lookup commit_metadata generation_data bloom_indexes bloom_data gfix
 	options: bloom(1,10,7) read_generation_data
 	EOF
 	test-tool read-graph >actual &&

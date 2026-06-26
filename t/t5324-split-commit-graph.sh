@@ -16,11 +16,11 @@ test_expect_success 'setup repo' '
 	infodir="$objdir/info" &&
 	graphdir="$infodir/commit-graphs" &&
 	test_oid_cache <<-EOM
-	shallow sha1:2132
-	shallow sha256:2436
+	shallow sha1:2144
+	shallow sha256:2448
 
-	base sha1:1408
-	base sha256:1528
+	base sha1:1420
+	base sha256:1540
 
 	oid_version sha1:1
 	oid_version sha256:2
@@ -39,9 +39,9 @@ graph_read_expect() {
 		OPTIONS=" read_generation_data"
 	fi
 	cat >expect <<- EOF
-	header: 43475048 1 $(test_oid oid_version) 4 $NUM_BASE
+	header: 43475048 1 $(test_oid oid_version) 5 $NUM_BASE
 	num_commits: $1
-	chunks: oid_fanout oid_lookup commit_metadata generation_data
+	chunks: oid_fanout oid_lookup commit_metadata generation_data gfix
 	options:$OPTIONS
 	EOF
 	test-tool read-graph >output &&
@@ -581,9 +581,9 @@ test_expect_success 'setup repo for mixed generation commit-graph-chain' '
 		test_line_count = 2 $graphdir/commit-graph-chain &&
 		test-tool read-graph >output &&
 		cat >expect <<-EOF &&
-		header: 43475048 1 $(test_oid oid_version) 4 1
+		header: 43475048 1 $(test_oid oid_version) 5 1
 		num_commits: $NUM_SECOND_LAYER_COMMITS
-		chunks: oid_fanout oid_lookup commit_metadata
+		chunks: oid_fanout oid_lookup commit_metadata gfix
 		options:
 		EOF
 		test_cmp expect output &&
@@ -614,9 +614,9 @@ test_expect_success 'do not write generation data chunk if not present on existi
 		test_line_count = 3 $graphdir/commit-graph-chain &&
 		test-tool read-graph >output &&
 		cat >expect <<-EOF &&
-		header: 43475048 1 $(test_oid oid_version) 4 2
+		header: 43475048 1 $(test_oid oid_version) 5 2
 		num_commits: $NUM_THIRD_LAYER_COMMITS
-		chunks: oid_fanout oid_lookup commit_metadata
+		chunks: oid_fanout oid_lookup commit_metadata gfix
 		options:
 		EOF
 		test_cmp expect output &&
@@ -656,9 +656,9 @@ test_expect_success 'do not write generation data chunk if the topmost remaining
 		test_line_count = 3 $graphdir/commit-graph-chain &&
 		test-tool read-graph >output &&
 		cat >expect <<-EOF &&
-		header: 43475048 1 $(test_oid oid_version) 4 2
+		header: 43475048 1 $(test_oid oid_version) 5 2
 		num_commits: $(($NUM_THIRD_LAYER_COMMITS + $NUM_FOURTH_LAYER_COMMITS))
-		chunks: oid_fanout oid_lookup commit_metadata
+		chunks: oid_fanout oid_lookup commit_metadata gfix
 		options:
 		EOF
 		test_cmp expect output &&
@@ -696,9 +696,9 @@ test_expect_success 'write generation data chunk if topmost remaining layer has 
 		test_line_count = 2 $graphdir/commit-graph-chain &&
 		test-tool read-graph >output &&
 		cat >expect <<-EOF &&
-		header: 43475048 1 $(test_oid oid_version) 5 1
+		header: 43475048 1 $(test_oid oid_version) 6 1
 		num_commits: $(($NUM_SECOND_LAYER_COMMITS + $NUM_THIRD_LAYER_COMMITS + $NUM_FOURTH_LAYER_COMMITS + $NUM_FIFTH_LAYER_COMMITS))
-		chunks: oid_fanout oid_lookup commit_metadata generation_data
+		chunks: oid_fanout oid_lookup commit_metadata generation_data gfix
 		options: read_generation_data
 		EOF
 		test_cmp expect output

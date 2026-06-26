@@ -51,6 +51,7 @@ void git_test_write_commit_graph_or_die(struct odb_source *source)
 #define GRAPH_CHUNKID_BLOOMINDEXES 0x42494458 /* "BIDX" */
 #define GRAPH_CHUNKID_BLOOMDATA 0x42444154 /* "BDAT" */
 #define GRAPH_CHUNKID_BASE 0x42415345 /* "BASE" */
+#define GRAPH_CHUNKID_GFIX 0x47464958 /* "GFIX" */
 
 #define GRAPH_VERSION_1 0x1
 #define GRAPH_VERSION GRAPH_VERSION_1
@@ -132,6 +133,228 @@ timestamp_t commit_graph_generation(const struct commit *c)
 		return data->generation;
 
 	return GENERATION_NUMBER_INFINITY;
+}
+
+/*
+ * Detect corrupt commit-graph generation numbers by checking that
+ * generation numbers increase from parent to child. A commit-graph
+ * written by Git 2.41 through 2.54 can have truncated generation
+ * numbers when the repository contains commits with committer dates
+ * at or beyond 2^32 seconds (2106-02-07 UTC), fixed in fbcc5408fcd.
+ *
+ * If the graph has been verified at load time, per-edge checks are
+ * skipped entirely.
+ */
+static int generation_ordering_corrupt;
+static int generation_ordering_verified;
+
+/*
+ * Read the generation number for commit at position 'pos' directly
+ * from the mmap'd commit-graph chunks, without creating commit
+ * objects. Used for bulk verification at graph load time.
+ */
+static timestamp_t generation_at_pos(struct commit_graph *g, uint32_t pos)
+{
+	const unsigned char *commit_data;
+	uint32_t lex_index;
+	uint64_t date_high, date_low, offset;
+	timestamp_t date;
+
+	if (pos >= g->num_commits + g->num_commits_in_base)
+		return GENERATION_NUMBER_INFINITY;
+
+	while (pos < g->num_commits_in_base)
+		g = g->base_graph;
+
+	lex_index = pos - g->num_commits_in_base;
+	commit_data = g->chunk_commit_data +
+		st_mult(graph_data_width(g->hash_algo), lex_index);
+
+	if (g->read_generation_data) {
+		date_high = get_be32(commit_data + g->hash_algo->rawsz + 8) & 0x3;
+		date_low = get_be32(commit_data + g->hash_algo->rawsz + 12);
+		date = (timestamp_t)((date_high << 32) | date_low);
+
+		offset = (timestamp_t)get_be32(
+			g->chunk_generation_data +
+			st_mult(sizeof(uint32_t), lex_index));
+
+		if (offset & CORRECTED_COMMIT_DATE_OFFSET_OVERFLOW) {
+			uint32_t offset_pos =
+				offset ^ CORRECTED_COMMIT_DATE_OFFSET_OVERFLOW;
+			return date + get_be64(
+				g->chunk_generation_data_overflow +
+				sizeof(uint64_t) * offset_pos);
+		}
+		return date + offset;
+	}
+
+	return get_be32(commit_data + g->hash_algo->rawsz + 8) >> 2;
+}
+
+/*
+ * Verify that all parent-child edges in the commit-graph have
+ * monotonically increasing generation numbers. Reads directly from
+ * the mmap'd chunks without creating commit objects.
+ *
+ * Returns 0 if valid, -1 if corrupt.
+ */
+static int verify_commit_graph_generations(struct commit_graph *g)
+{
+	uint32_t i, total;
+	struct commit_graph *cur;
+	timestamp_t *gen;
+	int result = 0;
+
+	for (cur = g; cur; cur = cur->base_graph) {
+		if (!cur->chunk_commit_data)
+			return 0;
+	}
+
+	total = g->num_commits + g->num_commits_in_base;
+
+	CALLOC_ARRAY(gen, total);
+	for (i = 0; i < total; i++)
+		gen[i] = generation_at_pos(g, i);
+
+	for (i = 0; i < total; i++) {
+		const unsigned char *commit_data;
+		uint32_t lex_index, edge_value, parent_pos;
+		struct commit_graph *layer = g;
+
+		if (gen[i] == GENERATION_NUMBER_INFINITY)
+			continue;
+
+		while (i < layer->num_commits_in_base)
+			layer = layer->base_graph;
+		lex_index = i - layer->num_commits_in_base;
+
+		commit_data = layer->chunk_commit_data +
+			st_mult(graph_data_width(layer->hash_algo), lex_index);
+
+		edge_value = get_be32(commit_data + layer->hash_algo->rawsz);
+		if (edge_value == GRAPH_PARENT_NONE)
+			continue;
+
+		if (edge_value < total &&
+		    gen[edge_value] != GENERATION_NUMBER_INFINITY &&
+		    gen[edge_value] >= gen[i]) {
+			result = -1;
+			goto done;
+		}
+
+		edge_value = get_be32(commit_data + layer->hash_algo->rawsz + 4);
+		if (edge_value == GRAPH_PARENT_NONE)
+			continue;
+		if (edge_value & GRAPH_EXTRA_EDGES_NEEDED) {
+			uint32_t extra_pos = edge_value & GRAPH_EDGE_LAST_MASK;
+			do {
+				if (!layer->chunk_extra_edges ||
+				    layer->chunk_extra_edges_size / sizeof(uint32_t) <= extra_pos)
+					goto done;
+				edge_value = get_be32(
+					layer->chunk_extra_edges +
+					sizeof(uint32_t) * extra_pos);
+				parent_pos = edge_value & GRAPH_EDGE_LAST_MASK;
+				if (parent_pos < total &&
+				    gen[parent_pos] != GENERATION_NUMBER_INFINITY &&
+				    gen[parent_pos] >= gen[i]) {
+					result = -1;
+					goto done;
+				}
+				extra_pos++;
+			} while (!(edge_value & GRAPH_LAST_EDGE));
+		} else {
+			if (edge_value < total &&
+			    gen[edge_value] != GENERATION_NUMBER_INFINITY &&
+			    gen[edge_value] >= gen[i]) {
+				result = -1;
+				goto done;
+			}
+		}
+	}
+
+done:
+	free(gen);
+	return result;
+}
+
+static char *graph_gfix_filename(const char *graph_filename)
+{
+	struct strbuf buf = STRBUF_INIT;
+
+	strbuf_addstr(&buf, graph_filename);
+	strbuf_addstr(&buf, ".gfix");
+	return strbuf_detach(&buf, NULL);
+}
+
+static int graph_layer_is_fixed(struct commit_graph *layer)
+{
+	char *gfix_path;
+	int ret;
+
+	if (layer->graph_fix_level >= 1)
+		return 1;
+
+	if (!layer->filename)
+		return 0;
+
+	gfix_path = graph_gfix_filename(layer->filename);
+	ret = !access(gfix_path, F_OK);
+	free(gfix_path);
+	return ret;
+}
+
+static void stamp_gfix_sidecar(struct commit_graph *g)
+{
+	struct commit_graph *layer;
+
+	for (layer = g; layer; layer = layer->base_graph) {
+		char *gfix_path;
+		int fd;
+
+		if (layer->graph_fix_level >= 1 || !layer->filename)
+			continue;
+
+		gfix_path = graph_gfix_filename(layer->filename);
+		fd = open(gfix_path, O_WRONLY | O_CREAT | O_TRUNC, 0444);
+		if (fd >= 0)
+			close(fd);
+		free(gfix_path);
+	}
+}
+
+void verify_commit_graph_generations_on_load(struct commit_graph *g)
+{
+	struct commit_graph *layer;
+	int all_layers_fixed = 1;
+
+	if (!g || generation_ordering_verified || generation_ordering_corrupt)
+		return;
+
+	if (!git_env_bool("GIT_TEST_FORCE_GENERATION_VERIFY", 0)) {
+		for (layer = g; layer; layer = layer->base_graph) {
+			if (!graph_layer_is_fixed(layer)) {
+				all_layers_fixed = 0;
+				break;
+			}
+		}
+
+		if (all_layers_fixed) {
+			generation_ordering_verified = 1;
+			return;
+		}
+	}
+
+	if (verify_commit_graph_generations(g)) {
+		generation_ordering_corrupt = 1;
+		warning(_("commit-graph has corrupt generation numbers; "
+			  "run \"git commit-graph write --reachable\" "
+			  "to regenerate"));
+	} else {
+		stamp_gfix_sidecar(g);
+		generation_ordering_verified = 1;
+	}
 }
 
 static timestamp_t commit_graph_generation_from_graph(const struct commit *c)
@@ -370,6 +593,18 @@ static int graph_read_bloom_data(const unsigned char *chunk_start,
 	return 0;
 }
 
+static int graph_read_gfix(const unsigned char *chunk_start,
+			   size_t chunk_size, void *data)
+{
+	struct commit_graph *g = data;
+
+	if (chunk_size < sizeof(uint32_t))
+		return 0;
+
+	g->graph_fix_level = get_be32(chunk_start);
+	return 0;
+}
+
 struct commit_graph *parse_commit_graph(struct repository *r,
 					void *graph_map, size_t graph_size)
 {
@@ -467,6 +702,8 @@ struct commit_graph *parse_commit_graph(struct repository *r,
 		read_chunk(cf, GRAPH_CHUNKID_BLOOMDATA,
 			   graph_read_bloom_data, graph);
 	}
+
+	read_chunk(cf, GRAPH_CHUNKID_GFIX, graph_read_gfix, graph);
 
 	if (graph->chunk_bloom_indexes && graph->chunk_bloom_data) {
 		init_bloom_filters();
@@ -771,8 +1008,24 @@ static struct commit_graph *prepare_commit_graph(struct repository *r)
 	odb_prepare_alternates(r->objects);
 	for (source = r->objects->sources; source; source = source->next) {
 		r->objects->commit_graph = read_commit_graph_one(source);
-		if (r->objects->commit_graph)
+		if (r->objects->commit_graph) {
+			verify_commit_graph_generations_on_load(
+				r->objects->commit_graph);
+			if (generation_ordering_corrupt) {
+				close_commit_graph(r->objects);
+				r->commit_graph_disabled = 1;
+				warning(_("regenerating commit-graph..."));
+				write_commit_graph_reachable(source,
+					COMMIT_GRAPH_WRITE_PROGRESS, NULL);
+				r->commit_graph_disabled = 0;
+				generation_ordering_corrupt = 0;
+				generation_ordering_verified = 1;
+				r->objects->commit_graph_attempted = 0;
+				r->objects->commit_graph =
+					read_commit_graph_one(source);
+			}
 			break;
+		}
 	}
 
 	return r->objects->commit_graph;
@@ -2091,6 +2344,15 @@ static int write_graph_chunk_base(struct hashfile *f,
 	return 0;
 }
 
+#define GRAPH_FIX_LEVEL 1
+
+static int write_graph_chunk_gfix(struct hashfile *f,
+				  void *data UNUSED)
+{
+	hashwrite_be32(f, GRAPH_FIX_LEVEL);
+	return 0;
+}
+
 static int write_commit_graph_file(struct write_commit_graph_context *ctx)
 {
 	uint32_t i;
@@ -2181,6 +2443,8 @@ static int write_commit_graph_file(struct write_commit_graph_context *ctx)
 		add_chunk(cf, GRAPH_CHUNKID_BASE,
 			  st_mult(hashsz, ctx->num_commit_graphs_after - 1),
 			  write_graph_chunk_base);
+	add_chunk(cf, GRAPH_CHUNKID_GFIX, sizeof(uint32_t),
+		  write_graph_chunk_gfix);
 
 	hashwrite_be32(f, GRAPH_SIGNATURE);
 

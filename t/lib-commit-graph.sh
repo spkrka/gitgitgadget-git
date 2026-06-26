@@ -50,6 +50,7 @@ graph_read_expect() {
 		OPTIONAL=" $2"
 		NUM_CHUNKS=$((3 + $(echo "$2" | wc -w)))
 	fi
+	NUM_CHUNKS=$((NUM_CHUNKS + 1))
 	GENERATION_VERSION=2
 	if test -n "$3"
 	then
@@ -63,7 +64,7 @@ graph_read_expect() {
 	cat >"$DIR/expect" <<-EOF
 	header: 43475048 1 $(test_oid oid_version) $NUM_CHUNKS 0
 	num_commits: $1
-	chunks: oid_fanout oid_lookup commit_metadata$OPTIONAL
+	chunks: oid_fanout oid_lookup commit_metadata$OPTIONAL gfix
 	options:$OPTIONS
 	EOF
 	(

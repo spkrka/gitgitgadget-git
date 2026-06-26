@@ -94,6 +94,7 @@ struct commit_graph {
 
 	uint32_t num_commits_in_base;
 	unsigned int read_generation_data;
+	uint32_t graph_fix_level;
 	struct commit_graph *base_graph;
 
 	const uint32_t *chunk_oid_fanout;
@@ -211,5 +212,12 @@ uint32_t commit_graph_position(const struct commit *);
  */
 void ensure_generations_valid(struct repository *r,
 			      struct commit **commits, size_t nr);
+
+/*
+ * Verify all generation numbers in the commit-graph at load time.
+ * Sets generation_ordering_verified on success, or warns and sets
+ * generation_ordering_corrupt on failure.
+ */
+void verify_commit_graph_generations_on_load(struct commit_graph *g);
 
 #endif
