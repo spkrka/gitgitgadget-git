@@ -6,6 +6,7 @@
 #include "odb.h"
 #include "bloom.h"
 #include "setup.h"
+#include "trace.h"
 
 static void dump_graph_info(struct commit_graph *graph)
 {
@@ -93,7 +94,19 @@ int cmd__read_graph(int argc, const char **argv)
 		dump_graph_info(graph);
 	else if (!strcmp(argv[1], "bloom-filters"))
 		dump_graph_bloom_filters(graph);
-	else {
+	else if (!strcmp(argv[1], "verify-generations")) {
+		int rounds = argc > 2 ? atoi(argv[2]) : 1;
+		int i;
+		for (i = 0; i < rounds; i++) {
+			uint64_t start = getnanotime();
+			int result = verify_commit_graph_generation_ordering(graph);
+			uint64_t elapsed = getnanotime() - start;
+			printf("result: %s\n", result ? "corrupt" : "ok");
+			printf("num_commits: %u\n",
+			       graph->num_commits + graph->num_commits_in_base);
+			printf("elapsed: %.3f ms\n", elapsed / 1e6);
+		}
+	} else {
 		fprintf(stderr, "unknown sub-command: '%s'\n", argv[1]);
 		ret = 1;
 	}

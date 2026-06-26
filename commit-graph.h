@@ -220,4 +220,10 @@ void ensure_generations_valid(struct repository *r,
  */
 void verify_commit_graph_generations_on_load(struct commit_graph *g);
 
+/*
+ * Run the two-pass generation ordering verification and return 0
+ * if valid, -1 if corrupt. No side effects.
+ */
+int verify_commit_graph_generation_ordering(struct commit_graph *g);
+
 #endif

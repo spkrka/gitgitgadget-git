@@ -279,6 +279,11 @@ done:
 	return result;
 }
 
+int verify_commit_graph_generation_ordering(struct commit_graph *g)
+{
+	return verify_commit_graph_generations(g);
+}
+
 static char *graph_gfix_filename(const char *graph_filename)
 {
 	struct strbuf buf = STRBUF_INIT;
