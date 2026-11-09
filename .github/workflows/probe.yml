@@ -1,9 +1,9 @@
-name: printf-timing
+name: printf-sweep
 on: push
 jobs:
-  timing:
+  sweep:
     strategy: { fail-fast: false, matrix: { os: [macos-15, macos-26, ubuntu-latest] } }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - run: bash timing.sh
+      - run: bash sweep.sh
