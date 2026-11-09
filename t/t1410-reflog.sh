@@ -153,6 +153,72 @@ test_expect_success 'reflog expire should not barf on an annotated tag' '
 	test_grep ! "error: [Oo]bject .* not a commit" err
 '
 
+test_expect_success 'reflog expire keeps reachable entries for 90 days' '
+	test_when_finished "rm -rf reachable-keep" &&
+	git init reachable-keep &&
+	(
+		cd reachable-keep &&
+		timestamp=$(test-tool date timestamp "60.days.ago") &&
+		timestamp=${timestamp#* -> } &&
+		test_commit --no-tag --date "$timestamp +0000" old &&
+		git reflog expire --all &&
+		test_stdout_line_count = 1 git reflog refs/heads/main
+	)
+'
+
+test_expect_success 'reflog expire removes reachable entries after 90 days' '
+	test_when_finished "rm -rf reachable-expire" &&
+	git init reachable-expire &&
+	(
+		cd reachable-expire &&
+		timestamp=$(test-tool date timestamp "100.days.ago") &&
+		timestamp=${timestamp#* -> } &&
+		test_commit --no-tag --date "$timestamp +0000" old &&
+		git reflog expire --all &&
+		test_stdout_line_count = 0 git reflog refs/heads/main
+	)
+'
+
+test_expect_success 'reflog expire keeps unreachable entries for 30 days' '
+	test_when_finished "rm -rf unreachable-keep" &&
+	git init unreachable-keep &&
+	(
+		cd unreachable-keep &&
+		test_commit --no-tag base &&
+		base=$(git rev-parse HEAD) &&
+		timestamp=$(test-tool date timestamp "20.days.ago") &&
+		timestamp=${timestamp#* -> } &&
+		test_commit --no-tag --date "$timestamp +0000" old &&
+		old=$(git rev-parse HEAD) &&
+		git update-ref refs/heads/main "$base" &&
+		git rev-list --all --objects >reachable &&
+		test_grep ! "$old" reachable &&
+		git reflog expire --all &&
+		git reflog --format='%H' refs/heads/main >actual &&
+		test_grep "$old" actual
+	)
+'
+
+test_expect_success 'reflog expire removes unreachable entries after 30 days' '
+	test_when_finished "rm -rf unreachable-expire" &&
+	git init unreachable-expire &&
+	(
+		cd unreachable-expire &&
+		test_commit --no-tag base &&
+		base=$(git rev-parse HEAD) &&
+		timestamp=$(test-tool date timestamp "40.days.ago") &&
+		timestamp=${timestamp#* -> } &&
+		test_commit --no-tag --date "$timestamp +0000" old &&
+		old=$(git rev-parse HEAD) &&
+		git update-ref refs/heads/main "$base" &&
+		git rev-list --all --objects >reachable &&
+		test_grep ! "$old" reachable &&
+		git reflog expire --all &&
+		git reflog --format='%H' refs/heads/main >actual &&
+		test_grep ! "$old" actual
+	)
+'
+
 test_expect_success 'corrupt and check' '
 
 	corrupt $F &&
@@ -172,6 +238,40 @@ test_expect_success 'reflog expire --dry-run should not touch reflog' '
 	test_line_count = 5 output &&
 
 	check_fsck "missing blob $F"
+'
+
+# A dry run only ever says "keep" or "would prune".
+check_dry_run_output () {
+	test_grep "^would prune " "$1" &&
+	sed -e "/^keep /d" -e "/^would prune /d" \
+		-e "/^Marking reachable objects/d" "$1" >unexpected &&
+	test_must_be_empty unexpected
+}
+
+test_expect_success 'reflog expire --dry-run --verbose with a named ref' '
+	git reflog refs/heads/main >before &&
+	git reflog expire --dry-run --verbose \
+		--expire=$(($test_tick - 10000)) \
+		--expire-unreachable=$(($test_tick - 10000)) \
+		--stale-fix \
+		refs/heads/main >output &&
+	check_dry_run_output output &&
+
+	git reflog refs/heads/main >after &&
+	test_cmp before after
+'
+
+test_expect_success 'reflog expire --dry-run --verbose --all' '
+	git reflog refs/heads/main >before &&
+	git reflog expire --dry-run --verbose \
+		--expire=$(($test_tick - 10000)) \
+		--expire-unreachable=$(($test_tick - 10000)) \
+		--stale-fix \
+		--all >output &&
+	check_dry_run_output output &&
+
+	git reflog refs/heads/main >after &&
+	test_cmp before after
 '
 
 test_expect_success 'reflog expire' '

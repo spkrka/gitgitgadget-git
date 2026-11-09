@@ -2,8 +2,8 @@
 
 test_description='reftable write options'
 
-GIT_TEST_DEFAULT_REF_FORMAT=reftable
-export GIT_TEST_DEFAULT_REF_FORMAT
+GIT_TEST_DEFAULT_REF_STORAGE_FORMAT=reftable
+export GIT_TEST_DEFAULT_REF_STORAGE_FORMAT
 # Disable auto-compaction for all tests as we explicitly control repacking of
 # refs.
 GIT_TEST_REFTABLE_AUTOCOMPACTION=false
@@ -146,7 +146,7 @@ test_expect_success 'small block size fails with large reflog message' '
 	(
 		cd repo &&
 		test_commit A &&
-		test-tool genzeros 500 | tr "\000" "a" >logmsg &&
+		test-tool genbytes 61 500 >logmsg &&
 		cat >expect <<-EOF &&
 		fatal: update_ref failed for ref ${SQ}refs/heads/logme${SQ}: reftable: transaction failure: entry too large
 		EOF

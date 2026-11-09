@@ -3227,6 +3227,7 @@ test_expect_success 'git history subcommands' '
 	fixup Z
 	reword Z
 	split Z
+	squash Z
 	EOF
 	test_completion "git history --" ""
 '
@@ -3235,6 +3236,8 @@ test_expect_success 'git history subcommand options' '
 	test_completion "git history split main --" <<-\EOF &&
 	--update-refs=Z
 	--dry-run Z
+	--gpg-sign Z
+	--no-... Z
 	--no-dry-run Z
 	EOF
 	test_completion "git history fixup --upd" "--update-refs=" &&

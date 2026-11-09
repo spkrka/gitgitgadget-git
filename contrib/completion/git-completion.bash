@@ -3553,16 +3553,17 @@ _git_sparse_checkout ()
 
 _git_stash ()
 {
-	local subcommands='push list show apply clear drop pop create branch import export'
-	local subcommand="$(__git_find_on_cmdline "$subcommands save")"
+	local subcommands subcommand
+
+	__git_resolve_builtins stash
+
+	subcommands="$___git_resolved_builtins"
+	subcommand="$(__git_find_on_cmdline "$subcommands")"
 
 	if [ -z "$subcommand" ]; then
 		case "$((cword - __git_cmd_idx)),$cur" in
 		*,--*)
 			__gitcomp_builtin stash_push
-			;;
-		1,sa*)
-			__gitcomp "save"
 			;;
 		1,*)
 			__gitcomp "$subcommands"
@@ -3589,18 +3590,21 @@ _git_stash ()
 		if [ $cword -eq $((__git_cmd_idx+2)) ]; then
 			__git_complete_refs
 		else
-			__gitcomp_nl "$(__git stash list \
-					| sed -n -e 's/:.*//p')"
+			__git_complete_stashes
 		fi
 		;;
 	import,*)
 		__git_complete_refs
 		;;
 	show,*|apply,*|drop,*|pop,*|export,*)
-		__gitcomp_nl "$(__git stash list \
-				| sed -n -e 's/:.*//p')"
+		__git_complete_stashes
 		;;
 	esac
+}
+
+__git_complete_stashes ()
+{
+	__gitcomp_nl "$(__git stash list | sed -n -e 's/:.*//p')"
 }
 
 _git_submodule ()
@@ -3816,7 +3820,7 @@ __git_complete_worktree_paths ()
 
 _git_worktree ()
 {
-	local subcommands="add list lock move prune remove unlock"
+	local subcommands="add list lock move prune remove repair unlock"
 	local subcommand subcommand_idx
 
 	subcommand="$(__git_find_on_cmdline --show-idx "$subcommands")"
@@ -3866,7 +3870,7 @@ _git_worktree ()
 			;;
 		esac
 		;;
-	lock,*|remove,*|unlock,*)
+	lock,*|remove,*|repair,*|unlock,*)
 		__git_complete_worktree_paths
 		;;
 	move,*)

@@ -16,13 +16,13 @@ static struct multi_pack_index *setup_midx(const char *object_dir,
 					   struct odb_source_packed **out)
 {
 	struct odb_source_packed *packed;
-	struct odb_source *source;
+	struct odb_files_dir *dir;
 
 	setup_git_directory(the_repository);
 
-	source = odb_find_source(the_repository->objects, object_dir);
-	if (source) {
-		packed = odb_source_files_downcast(source)->packed;
+	dir = odb_source_files_find_dir(the_repository->objects, object_dir);
+	if (dir) {
+		packed = dir->packed;
 	} else {
 		packed = odb_source_packed_new(the_repository->objects,
 					       object_dir, false);
@@ -90,7 +90,11 @@ static int read_midx_file(const char *object_dir, const char *checksum,
 		for (i = 0; i < m->num_objects; i++) {
 			nth_midxed_object_oid(&oid, m,
 					      i + m->num_objects_in_base);
-			midx_fill_entry(m, &oid, &e, NULL);
+			if (midx_fill_entry(m, &oid, &e, NULL) !=
+			    MIDX_FILL_HIT) {
+				ret = error(_("failed to load pack entry"));
+				goto out;
+			}
 
 			printf("%s %"PRIu64"\t%s\n",
 			       oid_to_hex(&oid), e.offset, e.p->pack_name);

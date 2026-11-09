@@ -22,8 +22,8 @@ test_tool_sources = [
   'test-example-tap.c',
   'test-find-pack.c',
   'test-fsmonitor-client.c',
+  'test-genbytes.c',
   'test-genrandom.c',
-  'test-genzeros.c',
   'test-getcwd.c',
   'test-hash-speed.c',
   'test-hash.c',
@@ -83,6 +83,7 @@ test_tool_sources = [
 
 test_tool = executable('test-tool',
   sources: test_tool_sources,
+  c_pch: '../../tools/precompiled.h',
   dependencies: [libgit_commonmain],
 )
 bin_wrappers += test_tool

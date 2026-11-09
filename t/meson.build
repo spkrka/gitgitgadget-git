@@ -30,7 +30,6 @@ clar_test_suites = [
 ]
 
 clar_sources = [
-  'unit-tests/clar/clar.c',
   'unit-tests/unit-test.c',
   'unit-tests/lib-oid.c',
   'unit-tests/lib-reftable.c'
@@ -49,7 +48,7 @@ clar_decls_h = custom_target(
 )
 clar_sources += clar_decls_h
 
-clar_sources += custom_target(
+clar_suite_h = custom_target(
   input: clar_decls_h,
   output: 'clar.suite',
   command : [
@@ -66,6 +65,13 @@ clar_unit_tests = executable('unit-tests',
   c_args: [
     '-DGIT_CLAR_DECLS_H="' + clar_decls_h.full_path() + '"',
   ],
+  c_pch: '../tools/precompiled.h',
+  link_with: static_library('clar',
+    sources: [
+      'unit-tests/clar/clar.c',
+      clar_suite_h,
+    ],
+  ),
   dependencies: [libgit_commonmain],
 )
 test('unit-tests', clar_unit_tests, kwargs: test_kwargs)
@@ -407,6 +413,7 @@ integration_tests = [
   't3452-history-split.sh',
   't3453-history-fixup.sh',
   't3454-history-drop.sh',
+  't3455-history-squash.sh',
   't3500-cherry.sh',
   't3501-revert-cherry-pick.sh',
   't3502-cherry-pick-merge.sh',
@@ -652,6 +659,8 @@ integration_tests = [
   't5409-colorize-remote-messages.sh',
   't5410-receive-pack.sh',
   't5411-proc-receive-hook.sh',
+  't5412-receive-report-hook.sh',
+  't5413-connectivity-check.sh',
   't5500-fetch-pack.sh',
   't5501-fetch-push-alternates.sh',
   't5502-quickfetch.sh',

@@ -28,7 +28,9 @@ test_expect_success 'merge based rebase --continue with works with touched file'
 
 	FAKE_LINES="edit 1" git rebase -i HEAD^ &&
 	test-tool chmtime =-60 F1 &&
-	git rebase --continue
+	test_cmp_rev commit-new-file-F2 REBASE_HEAD &&
+	git rebase --continue &&
+	test_ref_missing REBASE_HEAD
 '
 
 test_expect_success 'merge based rebase --continue removes .git/MERGE_MSG' '
@@ -37,8 +39,12 @@ test_expect_success 'merge based rebase --continue removes .git/MERGE_MSG' '
 	test_must_fail git rebase --onto main HEAD^ &&
 	git read-tree --reset -u HEAD &&
 	test_path_is_file .git/MERGE_MSG &&
+	git show-ref --verify AUTO_MERGE &&
+	test_cmp_rev commit-new-file-F2-on-topic-branch REBASE_HEAD &&
 	git rebase --continue &&
-	test_path_is_missing .git/MERGE_MSG
+	test_path_is_missing .git/MERGE_MSG &&
+	test_ref_missing AUTO_MERGE &&
+	test_ref_missing REBASE_HEAD
 '
 
 test_expect_success 'apply based rebase --continue works with touched file' '
@@ -394,5 +400,25 @@ test_orig_head () {
 
 test_orig_head --apply
 test_orig_head --merge
+
+test_expect_success 'rebase runs auto maintenance once it is done' '
+	# topic and main both add F2, so the pick conflicts and the rebase
+	# stops before the exec runs. "--continue" commits the resolution
+	# first, then runs the exec, which fails and stops it again.
+	git checkout -b auto-maintenance topic &&
+	test_must_fail env GIT_TRACE2_EVENT="$(pwd)/stop.txt" \
+		git rebase -x "git commit --allow-empty -m exec && false" main &&
+	test_subcommand_flex ! git maintenance run --auto <stop.txt &&
+	echo resolved >F2 &&
+	git add F2 &&
+	test_must_fail env GIT_TRACE2_EVENT="$(pwd)/mid.txt" \
+		git rebase --continue &&
+	test_subcommand_flex git commit <mid.txt &&
+	test_subcommand_flex ! git maintenance run --auto <mid.txt &&
+	GIT_TRACE2_EVENT="$(pwd)/end.txt" git rebase --continue &&
+	test_subcommand_flex git maintenance run --auto <end.txt &&
+	grep "\"child_start\".*\"maintenance\"" end.txt >maintenance &&
+	test_line_count = 1 maintenance
+'
 
 test_done
