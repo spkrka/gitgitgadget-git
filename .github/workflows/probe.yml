@@ -1,18 +1,9 @@
-name: printf-probe
+name: printf-bisect
 on: push
 jobs:
-  probe:
-    strategy: { fail-fast: false, matrix: { os: [macos-15, macos-26, ubuntu-latest] } }
+  bisect:
+    strategy: { fail-fast: false, matrix: { os: [macos-15, macos-26] } }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - run: ls -l /bin/sh; /bin/sh --version || true; sw_vers || true
-      - run: bash probe.sh /bin/sh -c 'printf "$@"' sh
-      - run: bash probe.sh /usr/bin/printf
-      - run: bash probe.sh bash -c 'printf "$@"' bash
-      - run: bash probe.sh zsh -c 'printf "$@"' zsh
-        continue-on-error: true
-      - name: C printf(3) direct
-        run: |
-          printf '#include <stdio.h>\n#include <errno.h>\n#include <string.h>\n#include <stdlib.h>\nint main(int c,char**v){int r=printf(v[1],0);int e=errno;fflush(stdout);fprintf(stderr,"ret=%%d errno=%%s\\n",r,strerror(e));return 0;}\n' >p.c && cc -o p p.c
-          for w in 100 1073741824 2147483583 2147483584 2147483640 2147483646 2147483647; do n=$(./p "%0${w}d" 2>err | wc -c); echo "C width=$w bytes=$n $(cat err)"; done
+      - run: bash bisect.sh
