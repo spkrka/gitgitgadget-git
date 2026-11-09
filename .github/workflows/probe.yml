@@ -1,9 +1,9 @@
-name: printf-bisect
+name: printf-timing
 on: push
 jobs:
-  bisect:
-    strategy: { fail-fast: false, matrix: { os: [macos-15, macos-26] } }
+  timing:
+    strategy: { fail-fast: false, matrix: { os: [macos-15, macos-26, ubuntu-latest] } }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - run: bash bisect.sh
+      - run: bash timing.sh
